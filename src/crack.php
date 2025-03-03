@@ -1,33 +1,21 @@
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
-
-use Dotenv\Dotenv;
-
-
-$dotenv = Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+require __DIR__ .'/database.php';
 
 header('Content-Type: application/json');
 
 $type = $_POST['type'] ?? 'easy';
 
 define('SALT','ThisIs-A-Salt123');
+
 function salter($string) {
 	return md5($string . SALT);
 }
 
+$passwordList = [];
+
 try {
-    $dsn = 'mysql:host=' . $_ENV['DB_HOST'] . ';dbname=' . $_ENV['DB_NAME'];
-    $user = $_ENV['DB_USER'];
-    $password = $_ENV['DB_PASS'];
-
-    $passwordList = [];
-
-    $dbConnection = new PDO($dsn, $user, $password);
-    $dbConnection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    $stmt = $dbConnection->prepare('select user_id, password from not_so_smart_users');
+    $stmt = $dbConnection->prepare('SELECT user_id, password FROM not_so_smart_users');
     $stmt->execute();
 
     $result = $stmt->setFetchMode(PDO::FETCH_ASSOC);
@@ -37,31 +25,18 @@ try {
     }
 
 } catch (PDOException $e) {
-    echo 'Connection failed: ' . $e->getMessage();
+    echo json_encode(['error' => 'Query failed: ' . $e->getMessage()]);
+    exit;
 }
 
 
-
-$results = [];
-
-switch ($type) {
-    case 'easy':
-        $results = easyFiveDigitNumbers($passwordList);
-        break;
-    case 'medium-uppercase':
-        $results = mediumUppercaseLettersAndNumber($passwordList);
-        break;
-    case 'medium-lowercase':
-         $results = mediumLowercaseDictionaryWords($passwordList);
-        break;
-    case 'hard':
-        $results = hardSixCharacterMixedPasswords($passwordList);
-        break;
-
-    default:
-        echo json_encode(['error' => 'Invalid type']);
-        break;
-}
+$results = match ($type) {
+    'easy' => easyFiveDigitNumbers($passwordList),
+    'medium-uppercase' => mediumUppercaseLettersAndNumber($passwordList),
+    'medium-lowercase' => mediumLowercaseDictionaryWords($passwordList),
+    'hard' => hardSixCharacterMixedPasswords($passwordList),
+    default => ['error' => 'Invalid type'],
+};
 
 function sampling(string $chars, int $size): Generator {
     yield from generateCombinations($chars, $size, []);

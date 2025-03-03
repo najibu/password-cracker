@@ -1,10 +1,14 @@
 document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('password-cracker-form');
     const resultDiv = document.getElementById('results');
+    const spinner = document.getElementById('spinner');
 
     form.addEventListener('submit', function (event) {
         event.preventDefault();
         const formData = new FormData(form);
+
+        // Display spinner
+        spinner.classList.remove('hidden')
 
         fetch('crack.php', {
             method: 'POST',
@@ -12,8 +16,9 @@ document.addEventListener('DOMContentLoaded', function () {
         })
             .then(response => response.json())
             .then(data => {
-                //todo: remove
-                console.log('data', data)
+                // Hide spinner
+                spinner.classList.add('hidden')
+
                 // Clear previous results
                 resultDiv.innerHTML = ''
 
@@ -26,8 +31,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     thead.innerHTML = `
                         <tr>
                             <th class="px-4 py-2">User Id</th>
+                            <th class="px-4 py-2">Hash</th>
                             <th class="px-4 py-2">Password</th>
-                            <th class="px-4 py-2">Actual Password</th>
                         </tr>
                     `
                     table.appendChild(thead)
@@ -51,6 +56,8 @@ document.addEventListener('DOMContentLoaded', function () {
             })
             .catch(error => {
                 console.error('Error:', error)
+                // Hide spinner
+                spinner.classList.add('hidden')
                 resultDiv.innerHTML = '<p class="text-red-500">An error occurred while processing your request</p>'
             });
     });

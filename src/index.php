@@ -32,10 +32,26 @@
             </div>
         </form>
 
+        <div id="spinner" class="flex justify-center items-center mt-6 hidden">
+            <div class="loader ease-liner rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>
+        </div>
+
         <div id="results" class="mt-6"></div>
     </div>
-<script>
 
-</script>
+    <style>
+        .loader {
+            border-top-color: #3498db;
+            animation: spin 1s infinite linear;
+        }
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
 </body>
 </html>
