@@ -1,4 +1,13 @@
 <?php
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Dotenv\Dotenv;
+
+
+$dotenv = Dotenv::createImmutable(__DIR__ . '/..');
+$dotenv->load();
+
 header('Content-Type: application/json');
 
 $type = $_POST['type'] ?? 'easy';
@@ -9,9 +18,9 @@ function salter($string) {
 }
 
 try {
-    $dsn = 'mysql:host=localhost;dbname=passwords';
-    $user = 'root';
-    $password = 'root';
+    $dsn = 'mysql:host=' . $_ENV['DB_HOST'] . ';dbname=' . $_ENV['DB_NAME'];
+    $user = $_ENV['DB_USER'];
+    $password = $_ENV['DB_PASS'];
 
     $passwordList = [];
 
