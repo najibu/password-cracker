@@ -1,0 +1,13 @@
+# Ignore vendor directory (for Composer dependencies)
+vendor/
+
+# Ignore environment variables
+.env
+
+# Ignore IDE and editor specific files
+.vscode/
+.idea/
+*.swp
+
+# Ignore composer.lock file
+composer.lock
