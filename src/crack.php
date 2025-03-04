@@ -1,16 +1,14 @@
 <?php
 
-require __DIR__ .'/database.php';
+ini_set('memory_limit', '256M'); // Increase memory limit to 256MB
+set_time_limit(120); // Increase time limit to 120 seconds
+
+require __DIR__ .'/config.php';
 
 header('Content-Type: application/json');
 
-$type = $_POST['type'] ?? 'easy';
+$type = $_POST['type'] ?? 'hard';
 
-define('SALT','ThisIs-A-Salt123');
-
-function salter($string) {
-	return md5($string . SALT);
-}
 
 $passwordList = [];
 
@@ -31,18 +29,31 @@ try {
 
 
 $results = match ($type) {
-    'easy' => easyFiveDigitNumbers($passwordList),
-    'medium-uppercase' => mediumUppercaseLettersAndNumber($passwordList),
-    'medium-lowercase' => mediumLowercaseDictionaryWords($passwordList),
-    'hard' => hardSixCharacterMixedPasswords($passwordList),
+    'easy' => crackNumbers($passwordList),
+    'medium-uppercase' => crackUppercaseAndNumber($passwordList),
+    'medium-lowercase' => crackDictionary($passwordList),
+    'hard' => crackAlphanumeric($passwordList),
     default => ['error' => 'Invalid type'],
 };
 
-function sampling(string $chars, int $size): Generator {
-    yield from generateCombinations($chars, $size, []);
+function sampling(string $chars, int $size, int $batchSize = 10_000): Generator
+{
+    $batch = [];
+    foreach (generateCombinations($chars, $size, []) as $combination) {
+        $batch[] = $combination;
+        if (count($batch) >= $batchSize) {
+            yield $batch;
+            $batch = [];
+        }
+    }
+
+    if (!empty($batch)) {
+        yield $batch;
+    }
 }
 
-function generateCombinations(string $chars, int $size, array $prefix): Generator {
+function generateCombinations(string $chars, int $size, array $prefix): Generator
+{
     if ($size === 0) {
         yield implode('', $prefix);
         return;
@@ -55,43 +66,50 @@ function generateCombinations(string $chars, int $size, array $prefix): Generato
     }
 }
 
-function isHashInPasswordList($hash, $passwordList) {
-    $flippedPasswordList = array_flip($passwordList);
-
-    return isset($flippedPasswordList[$hash]);
-}
-
-function easyFiveDigitNumbers($passwordList) {
+function crackNumbers($passwordList)
+{
     $combinations = sampling(digits(), 5);
 
     return findMatchingPasswords($passwordList, $combinations);
 }
 
-function digits() {
+function digits(): string
+{
     return implode(',', range(0, 9));
 }
 
-function mediumUppercaseLettersAndNumber($passwordList) {
-    $uppercaseLetters = implode(',', range('A', 'Z'));
+function uppercaseLetters(): string
+{
+    return implode(',', range('A', 'Z'));
+}
 
-    $combinations = sampling($uppercaseLetters . digits(), 4);
+function lowercaseLetters(): string
+{
+    return implode(',', range('a', 'z'));
+}
+
+function crackUppercaseAndNumber($passwordList)
+{
+    $combinations = sampling(uppercaseLetters() . digits(), 4);
 
     return findMatchingPasswords($passwordList, $combinations);
 }
 
-function mediumLowercaseDictionaryWords($passwordList) {
-    $dictionary = file('dictionary.txt', FILE_IGNORE_NEW_LINES);
+function crackDictionary($passwordList)
+{
+    $dictionary = file('dictionary.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $flippedPasswordList = array_flip($passwordList);
 
     $results = [];
 
     foreach ($dictionary as $word) {
         if (strlen($word) <= 6) {
-            $hashedPassword = salter(strtolower($word));
+            $hash = salter(strtolower($word));
 
-            if (isHashInPasswordList($hashedPassword, $passwordList)) {
+            if (isset($flippedPasswordList[$hash])) {
                 $results[] = [
-                    "user_id" => array_search($hashedPassword, $passwordList),
-                    "password" => $hashedPassword,
+                    "user_id" => array_search($hash, $passwordList, true),
+                    "password" => $hash,
                     "actual_password" => $word
                 ];
             }
@@ -101,28 +119,35 @@ function mediumLowercaseDictionaryWords($passwordList) {
     return $results;
 }
 
-function hardSixCharacterMixedPasswords($passwordList) {
-    $chars = implode(',', range('A', 'Z')) . ',' . implode(',', range('a', 'z')) . ',' . digits();
-    $combinations = sampling($chars, 6);
+function crackAlphanumeric($passwordList)
+{
+    $chars = uppercaseLetters() . ',' . lowercaseLetters() . ',' . digits();
+    $combinations = sampling($chars, 6, 50_000);
 
     return findMatchingPasswords($passwordList, $combinations);
 }
 
 
-function findMatchingPasswords($passwordList, $combinations) {
+function findMatchingPasswords($passwordList, $combinations)
+{
     $results = [];
+    $flippedPasswordList = array_flip($passwordList);
 
-    foreach ($combinations as $combination) {
-        $hashedPassword = salter($combination);
+    foreach ($combinations as $batch) {
+        foreach ($batch as $combination) {
+            $hash = salter($combination);
 
-        if (isHashInPasswordList($hashedPassword, $passwordList)) {
-            $results[] = [
-                "user_id" => array_search($hashedPassword, $passwordList),
-                "password" => $hashedPassword,
-                "actual_password" => $combination
-            ];
+            if (isset($flippedPasswordList[$hash])) {
+                $results[] = [
+                    "user_id" => array_search($hash, $passwordList, true),
+                    "password" => $hash,
+                    "actual_password" => $combination
+                ];
+            }
         }
+        unset($batch); // Clear the batch from memory
     }
+    unset($flippedPasswordList); // Clear the flipped password list from memory
 
     return $results;
 }
