@@ -39,7 +39,7 @@ This project is a password cracker built using PHP, HTML, CSS and Javascript. It
 5. Start the PHP development server:
     ```bash
     cd src
-    php -S localhost:8000 -t public
+    php -S localhost:8000 
     ```
 
 ## Usage
