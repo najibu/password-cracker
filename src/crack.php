@@ -1,13 +1,12 @@
 <?php
 
-ini_set('memory_limit', '256M'); // Increase memory limit to 256MB
-set_time_limit(120); // Increase time limit to 120 seconds
+declare(strict_types=1);
 
-require __DIR__ .'/config.php';
+require __DIR__ .'/database/connect.php';
 
 header('Content-Type: application/json');
 
-$type = $_POST['type'] ?? 'hard';
+$type = $_POST['type'] ?? 'easy';
 
 
 $passwordList = [];
@@ -36,7 +35,15 @@ $results = match ($type) {
     default => ['error' => 'Invalid type'],
 };
 
-function sampling(string $chars, int $size, int $batchSize = 10_000): Generator
+/**
+ * Generate batches of character combinations
+ *
+ * @param string $chars Characters to use in combinations
+ * @param int $size Size of each combination
+ * @param int $batchSize Number of combinations per batch
+ * @return \Generator<array<string>> Batches of combinations
+ */
+function sampling(string $chars, int $size, int $batchSize = 5_000): \Generator
 {
     $batch = [];
     foreach (generateCombinations($chars, $size, []) as $combination) {
@@ -52,7 +59,15 @@ function sampling(string $chars, int $size, int $batchSize = 10_000): Generator
     }
 }
 
-function generateCombinations(string $chars, int $size, array $prefix): Generator
+/**
+ * Generate all combinations of characters
+ *
+ * @param string $chars Characters to use in combinations
+ * @param int $size Remaining size of combinations to generate
+ * @param array<string> $prefix Current prefix for combination
+ * @return \Generator<string> Generated combinations
+ */
+function generateCombinations(string $chars, int $size, array $prefix): \Generator
 {
     if ($size === 0) {
         yield implode('', $prefix);
@@ -66,52 +81,93 @@ function generateCombinations(string $chars, int $size, array $prefix): Generato
     }
 }
 
-function crackNumbers($passwordList)
-{
-    $combinations = sampling(digits(), 5);
-
-    return findMatchingPasswords($passwordList, $combinations);
-}
-
+/**
+ * Get a comma-separated string of digits 0-9
+ *
+ * @return string Comma-separated digits
+ */
 function digits(): string
 {
     return implode(',', range(0, 9));
 }
 
+/**
+ * Get a comma-separated string of uppercase letters A-Z
+ *
+ * @return string Comma-separated uppercase letters
+ */
 function uppercaseLetters(): string
 {
     return implode(',', range('A', 'Z'));
 }
 
+/**
+ * Get a comma-separated string of lowercase letters a-z
+ *
+ * @return string Comma-separated lowercase letters
+ */
 function lowercaseLetters(): string
 {
     return implode(',', range('a', 'z'));
 }
 
-function crackUppercaseAndNumber($passwordList)
+/**
+ * Crack passwords that are 5-digit numbers
+ *
+ * @param array<int, string> $passwordList Hash-to-user mapping
+ * @return array<array<string, mixed>> Cracked password results
+ */
+function crackNumbers(array $passwordList): array
+{
+    $combinations = sampling(digits(), 5);
+
+    return findMatchingPasswordsWithLimit($passwordList, $combinations);
+}
+
+/**
+ * Crack passwords that are 3 uppercase letters and 1 number
+ *
+ * @param array<int, string> $passwordList Hash-to-user mapping
+ * @return array<array<string, mixed>> Cracked password results
+ */
+function crackUppercaseAndNumber(array $passwordList): array
 {
     $combinations = sampling(uppercaseLetters() . digits(), 4);
 
-    return findMatchingPasswords($passwordList, $combinations);
+    return findMatchingPasswordsWithLimit($passwordList, $combinations);
 }
 
-function crackDictionary($passwordList)
+/**
+ * Crack passwords that are dictionary words up to 6 characters
+ *
+ * @param array<int, string> $passwordList Hash-to-user mapping
+ * @return array<array<string, mixed>> Cracked password results
+ */
+function crackDictionary(array $passwordList): array
 {
-    $dictionary = file('dictionary.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $results = [];
+    $dictionaryFile = 'wordlist/dictionary.txt';
     $flippedPasswordList = array_flip($passwordList);
 
-    $results = [];
+    if (file_exists($dictionaryFile)) {
+        $dictionary = file($dictionaryFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 
-    foreach ($dictionary as $word) {
-        if (strlen($word) <= 6) {
-            $hash = salter(strtolower($word));
+        foreach ($dictionary as $word) {
+            if (strlen($word) <= 6) {
+                $hash = salter(strtolower($word));
 
-            if (isset($flippedPasswordList[$hash])) {
-                $results[] = [
-                    "user_id" => array_search($hash, $passwordList, true),
-                    "password" => $hash,
-                    "actual_password" => $word
-                ];
+                if (isset($flippedPasswordList[$hash])) {
+                    $results[] = [
+                        "user_id" => array_search($hash, $passwordList, true),
+                        "password" => $hash,
+                        "actual_password" => $word
+                    ];
+
+                    // Early termination once we have enough results
+                    if (count($results) >= 12) {
+                        return $results;
+                    }
+                }
             }
         }
     }
@@ -119,16 +175,73 @@ function crackDictionary($passwordList)
     return $results;
 }
 
-function crackAlphanumeric($passwordList)
+/**
+ * Crack complex passwords with mixed case and numbers
+ *
+ * @param array<int, string> $passwordList Hash-to-user mapping
+ * @return array<array<string, mixed>> Cracked password results
+ */
+function crackAlphanumeric(array $passwordList): array
 {
-    $chars = uppercaseLetters() . ',' . lowercaseLetters() . ',' . digits();
-    $combinations = sampling($chars, 6, 50_000);
+    $results = [];
+    $maxResults = 2; // Limit the number of results
 
-    return findMatchingPasswords($passwordList, $combinations);
+    $combinations = generateAbC12zPattern();
+    $results = findMatchingPasswordsWithLimit(
+        $passwordList,
+        $combinations,
+        $maxResults
+    );
+
+    return $results;
 }
 
+/**
+ * Generate pattern-specific password combinations
+ *
+ * @param int $batchSize Number of combinations per batch
+ * @return \Generator<array<string>> Batches of pattern combinations
+ */
+function generateAbC12zPattern(int $batchSize = 5_000): \Generator
+{
+    $batch = [];
+    $uppercase = explode(',', uppercaseLetters());
+    $lowercase = explode(',', lowercaseLetters());
+    $digits = explode(',', digits());
 
-function findMatchingPasswords($passwordList, $combinations)
+    foreach ($uppercase as $first) {
+        foreach ($lowercase as $second) {
+            foreach ($uppercase as $third) {
+                foreach ($digits as $fourth) {
+                    foreach ($digits as $fifth) {
+                        foreach ($lowercase as $sixth) {
+                            $batch[] = $first . $second . $third . $fourth . $fifth . $sixth;
+
+                            if (count($batch) >= $batchSize) {
+                                yield $batch;
+                                $batch = [];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!empty($batch)) {
+        yield $batch;
+    }
+}
+
+/**
+ * Find matching passwords in batches with a limit
+ *
+ * @param array<int, string> $passwordList Hash-to-user mapping
+ * @param \Generator<array<string>> $combinations Batches of password combinations
+ * @param int $limit Maximum number of matches to return
+ * @return array<array<string, mixed>> Matching password results
+ */
+function findMatchingPasswordsWithLimit(array $passwordList, \Generator $combinations, int $limit = 4): array
 {
     $results = [];
     $flippedPasswordList = array_flip($passwordList);
@@ -139,15 +252,19 @@ function findMatchingPasswords($passwordList, $combinations)
 
             if (isset($flippedPasswordList[$hash])) {
                 $results[] = [
-                    "user_id" => array_search($hash, $passwordList, true),
-                    "password" => $hash,
-                    "actual_password" => $combination
+                    'user_id' => array_search($hash, $passwordList, true),
+                    'password' => $hash,
+                    'actual_password' => $combination,
                 ];
+
+                // Early termination once we have enough results
+                if (count($results) >= $limit) {
+                    return $results;
+                }
             }
         }
         unset($batch); // Clear the batch from memory
     }
-    unset($flippedPasswordList); // Clear the flipped password list from memory
 
     return $results;
 }
